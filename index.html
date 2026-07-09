@@ -60,8 +60,8 @@
     background:#0c0e12; margin:4px auto 0;
   }
   #closeBtn{
-    position:absolute; top:18px; right:16px;
-    width:38px; height:38px; border:0; border-radius:12px;
+    position:absolute; top:18px; right:16px; z-index:2;
+    width:44px; height:44px; border:0; border-radius:12px;
     background:transparent; color:var(--accent);
     font-size:0; cursor:pointer;
   }
@@ -223,6 +223,7 @@
     <p class="hint">
       <b>Tap</b> the screen to open settings.<br>
       <b>3-finger tap</b> to lock / unlock the interface while filming.
+      <br>v4
     </p>
   </div>
 </div>
@@ -445,6 +446,7 @@
   stage.addEventListener('click', stageTap);
   scrim.addEventListener('click', function(){
     if (Date.now() - lastMulti < 600 || locked) return;
+    if (Date.now() - pickerGuard < 1000) return;
     closePanel();
   });
 
@@ -461,16 +463,31 @@
   });
   sizeSlider.addEventListener('change', save);
 
-  /* live preview while the native picker is open; rebuild the rows only when
-     it closes (a rebuild re-parents the input, which would dismiss the picker) */
+  /* while the native color picker is open, its taps leak "click" events to the
+     page underneath — keep the settings panel from closing on those */
+  var pickerGuard = 0;
+  ['click','focus','input','change'].forEach(function(ev){
+    bgPicker.addEventListener(ev, function(){ pickerGuard = Date.now(); });
+    mkPicker.addEventListener(ev, function(){ pickerGuard = Date.now(); });
+  });
+
+  /* live preview. NEVER rebuild the swatch rows while the picker is in use:
+     a rebuild re-parents the <input type="color">, which dismisses the native
+     picker (iOS fires "change" on every selection, not just on close).
+     Only the selection rings are updated, without touching the DOM structure. */
+  function ringRainbow(picker){
+    var rain = picker.parentElement;
+    if (!rain || !rain.classList.contains('rainbow')) return;
+    var sibs = rain.parentElement.querySelectorAll('.swatch');
+    for (var i = 0; i < sibs.length; i++) sibs[i].classList.remove('sel');
+    rain.classList.add('sel');
+  }
   bgPicker.addEventListener('input', function(){
-    state.bg = state.customBg = bgPicker.value; save(); renderStage();
+    state.bg = state.customBg = bgPicker.value; save(); renderStage(); ringRainbow(bgPicker);
   });
   mkPicker.addEventListener('input', function(){
-    state.mk = state.customMk = mkPicker.value; save(); renderStage();
+    state.mk = state.customMk = mkPicker.value; save(); renderStage(); ringRainbow(mkPicker);
   });
-  bgPicker.addEventListener('change', renderControls);
-  mkPicker.addEventListener('change', renderControls);
 
   /* ---------- keyboard ---------- */
   document.getElementById('kbBtn').addEventListener('click', function(){
