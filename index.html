@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#05a13c">
+<title>Green Screen — VFX Trackers</title>
+<style>
+  :root{
+    --panel:#1b1e25; --card:#20242c; --line:#31363f;
+    --accent:#c6f52f; --text:#e9ecf1; --muted:#8b909b;
+  }
+  html,body{height:100vh; overscroll-behavior:none;}
+  html{touch-action:manipulation;}
+  body{
+    margin:0; overflow:hidden; background:#000;
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;
+    -webkit-user-select:none; user-select:none;
+    -webkit-tap-highlight-color:transparent;
+  }
+
+  /* ---------- Stage ---------- */
+  #stage{
+    position:fixed; inset:0;
+    background:#05a13c;
+    transition:background .25s;
+  }
+  .marker{
+    position:absolute; transform:translate(-50%,-50%);
+    pointer-events:none;
+  }
+  .marker svg{display:block;}
+
+  /* ---------- Scrim ---------- */
+  #scrim{
+    position:fixed; inset:0; background:transparent;
+    display:none;
+  }
+
+  /* ---------- Bottom sheet ---------- */
+  #panel{
+    position:fixed; left:0; right:0; bottom:0; z-index:10;
+    background:var(--panel); color:var(--text);
+    border-radius:22px 22px 0 0;
+    max-height:72dvh;
+    transform:translateY(105%);
+    transition:transform .32s cubic-bezier(.32,.72,.25,1);
+    display:flex; flex-direction:column;
+    box-shadow:0 -12px 40px rgba(0,0,0,.45);
+  }
+  #panel.open{transform:translateY(0);}
+  #panelHead{
+    flex:0 0 auto; position:relative; padding:10px 20px 0;
+  }
+  .handle{
+    width:44px; height:5px; border-radius:3px;
+    background:#0c0e12; margin:4px auto 0;
+  }
+  #closeBtn{
+    position:absolute; top:18px; right:16px;
+    width:38px; height:38px; border:0; border-radius:12px;
+    background:transparent; color:var(--accent);
+    font-size:0; cursor:pointer;
+  }
+  #closeBtn svg{width:22px; height:22px;}
+  #panelBody{
+    flex:1 1 auto; overflow-y:auto; overscroll-behavior:contain;
+    -webkit-overflow-scrolling:touch;
+    padding:6px 20px calc(28px + env(safe-area-inset-bottom));
+  }
+  h2{
+    color:var(--accent); font-size:17px; font-weight:700;
+    letter-spacing:.01em; margin:22px 0 14px;
+    display:flex; justify-content:space-between; align-items:baseline;
+  }
+  h2:first-child{margin-top:10px;}
+  h2 .val{color:var(--muted); font-size:13px; font-weight:600; font-variant-numeric:tabular-nums;}
+
+  /* swatches */
+  .swatches{display:flex; gap:14px; flex-wrap:wrap;}
+  .swatch{
+    width:46px; height:46px; border-radius:50%;
+    border:0; padding:0; cursor:pointer; flex:0 0 auto;
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,.14);
+    transition:transform .12s;
+  }
+  .swatch:active{transform:scale(.92);}
+  .swatch.sel{
+    box-shadow:0 0 0 3px var(--panel), 0 0 0 6px var(--accent);
+  }
+  .swatch.rainbow{
+    background:
+      radial-gradient(circle at 50% 50%, #fff 0 14%, transparent 16%),
+      conic-gradient(#ff0040,#ff8000,#ffee00,#37ff00,#00e0ff,#2a37ff,#c400ff,#ff0040);
+  }
+
+  /* marker types */
+  .types{display:flex; gap:10px; justify-content:space-between;}
+  .typeBtn{
+    flex:1 1 0; aspect-ratio:1/1; max-width:66px;
+    background:transparent; border:2px solid transparent; border-radius:16px;
+    padding:10px; cursor:pointer; transition:transform .12s;
+  }
+  .typeBtn:active{transform:scale(.92);}
+  .typeBtn.sel{border-color:var(--accent); background:var(--card);}
+  .typeBtn svg{width:100%; height:100%; display:block;}
+
+  /* slider */
+  input[type=range]{
+    -webkit-appearance:none; appearance:none;
+    width:100%; height:34px; background:transparent; margin:0;
+  }
+  input[type=range]::-webkit-slider-runnable-track{
+    height:7px; border-radius:4px; background:#0c0e12;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; appearance:none;
+    width:52px; height:32px; border-radius:16px;
+    background:var(--accent); margin-top:-12.5px;
+    box-shadow:0 2px 8px rgba(0,0,0,.4);
+  }
+  input[type=range]::-moz-range-track{height:7px; border-radius:4px; background:#0c0e12;}
+  input[type=range]::-moz-range-thumb{
+    width:52px; height:32px; border-radius:16px; border:0; background:var(--accent);
+  }
+
+  /* patterns */
+  .patterns{display:grid; grid-template-columns:1fr 1fr; gap:14px;}
+  .patBtn{
+    position:relative; aspect-ratio:1/1.05;
+    background:var(--panel); border:1.5px solid var(--line); border-radius:16px;
+    cursor:pointer; padding:0; transition:transform .12s;
+  }
+  .patBtn:active{transform:scale(.96);}
+  .patBtn.sel{border-color:var(--accent); box-shadow:0 0 0 1px var(--accent);}
+  .patBtn .pm{
+    position:absolute; transform:translate(-50%,-50%); pointer-events:none;
+  }
+  .patBtn .pm svg{display:block; width:20px; height:20px;}
+
+  /* keyboard + hint */
+  #kbBtn{
+    width:100%; padding:16px; border:0; border-radius:16px;
+    background:var(--accent); color:#12140a;
+    font-size:16px; font-weight:700; cursor:pointer;
+    font-family:inherit;
+  }
+  #kbBtn:active{filter:brightness(.9);}
+  .hint{
+    color:var(--muted); font-size:13px; line-height:1.55;
+    text-align:center; margin:20px 0 0;
+  }
+  .hint b{color:var(--text); font-weight:600;}
+
+  /* hidden inputs */
+  #kb{
+    position:fixed; bottom:0; left:0; width:100%; height:1px;
+    opacity:0; border:0; padding:0; pointer-events:none;
+    caret-color:transparent; background:transparent;
+  }
+  .colorInput{position:fixed; bottom:0; left:0; width:1px; height:1px; opacity:0; pointer-events:none; border:0;}
+
+  /* toast */
+  #toast{
+    position:fixed; top:calc(20px + env(safe-area-inset-top)); left:50%;
+    transform:translate(-50%,-16px); z-index:20;
+    background:rgba(16,18,23,.92); color:var(--text);
+    padding:12px 20px; border-radius:100px;
+    font-size:14px; font-weight:600; white-space:nowrap;
+    opacity:0; pointer-events:none;
+    transition:opacity .25s, transform .25s;
+    box-shadow:0 6px 24px rgba(0,0,0,.4);
+  }
+  #toast.show{opacity:1; transform:translate(-50%,0);}
+  #toast .lock{color:var(--accent);}
+
+  @media (prefers-reduced-motion: reduce){
+    #panel,#toast,.swatch,.typeBtn,.patBtn{transition:none;}
+  }
+</style>
+</head>
+<body>
+
+<div id="stage"></div>
+<div id="scrim"></div>
+
+<div id="panel">
+  <div id="panelHead">
+    <div class="handle"></div>
+    <button id="closeBtn" aria-label="Close settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"><path d="M5 5l14 14M19 5L5 19"/></svg>
+    </button>
+  </div>
+  <div id="panelBody">
+    <h2>Background</h2>
+    <div class="swatches" id="bgRow"></div>
+
+    <h2>Marker Color</h2>
+    <div class="swatches" id="mkRow"></div>
+
+    <h2>Marker Type</h2>
+    <div class="types" id="typeRow"></div>
+
+    <h2>Marker Size <span class="val" id="sizeVal"></span></h2>
+    <input type="range" id="sizeSlider" min="16" max="90" step="1">
+
+    <h2>Choose Pattern</h2>
+    <div class="patterns" id="patGrid"></div>
+
+    <h2>Keyboard</h2>
+    <button id="kbBtn">Show System Keyboard</button>
+
+    <p class="hint">
+      <b>Tap</b> the screen to open settings.<br>
+      <b>3-finger tap</b> to lock / unlock the interface while filming.
+    </p>
+  </div>
+</div>
+
+<input id="kb" type="text" autocomplete="off" autocorrect="off" autocapitalize="none" aria-hidden="true" tabindex="-1">
+<input class="colorInput" type="color" id="bgPicker">
+<input class="colorInput" type="color" id="mkPicker">
+<div id="toast"></div>
+
+<script>
+(function(){
+  'use strict';
+
+  var COLORS = ['#05a13c','#0d3cc9','#000000','#2b2b2b','#ffffff'];
+
+  var PATTERNS = {
+    corners4: [[10,7],[90,7],[10,93],[90,93]],
+    corners5: [[10,7],[90,7],[10,93],[90,93],[50,50]],
+    cluster4: [[40,45],[60,45],[40,55],[60,55]],
+    grid9:    [[15,12],[50,12],[85,12],[15,50],[50,50],[85,50],[15,88],[50,88],[85,88]],
+    grid20:   (function(){
+                var xs=[12,37.3,62.7,88], ys=[7,28.5,50,71.5,93], p=[];
+                ys.forEach(function(y){ xs.forEach(function(x){ p.push([x,y]); }); });
+                return p;
+              })(),
+    single:   [[50,50]]
+  };
+  var PATTERN_ORDER = ['corners4','corners5','cluster4','grid9','grid20','single'];
+  var TYPES = ['cross','x','dot','tracker','checker'];
+
+  var state = {
+    bg: '#05a13c',
+    mk: '#000000',
+    type: 'cross',
+    size: 38,
+    pattern: 'corners5',
+    customBg: '#ff6a00',
+    customMk: '#ff6a00'
+  };
+  var saved = null;
+  try { saved = JSON.parse(localStorage.getItem('gs-settings')); } catch(e){}
+  var firstRun = !saved;
+  if (saved) for (var k in state) if (saved[k] !== undefined) state[k] = saved[k];
+
+  var locked = false;
+  var kbActive = false;
+  var lastMulti = 0;
+
+  var stage = document.getElementById('stage');
+  var panel = document.getElementById('panel');
+  var scrim = document.getElementById('scrim');
+  var kb = document.getElementById('kb');
+  var toastEl = document.getElementById('toast');
+  var sizeSlider = document.getElementById('sizeSlider');
+  var sizeVal = document.getElementById('sizeVal');
+  var bgPicker = document.getElementById('bgPicker');
+  var mkPicker = document.getElementById('mkPicker');
+
+  function save(){
+    try { localStorage.setItem('gs-settings', JSON.stringify(state)); } catch(e){}
+  }
+
+  /* ---------- marker SVG ---------- */
+  function contrastFor(color){
+    var c = color.replace('#','');
+    if (c.length === 3) c = c[0]+c[0]+c[1]+c[1]+c[2]+c[2];
+    var r=parseInt(c.substr(0,2),16), g=parseInt(c.substr(2,2),16), b=parseInt(c.substr(4,2),16);
+    return (0.299*r + 0.587*g + 0.114*b) > 150 ? '#000000' : '#ffffff';
+  }
+  function markerSVG(type, color){
+    var s = '<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">';
+    if (type === 'cross'){
+      s += '<path d="M50 4V96M4 50H96" stroke="'+color+'" stroke-width="9"/>';
+    } else if (type === 'x'){
+      s += '<path d="M17 17L83 83M83 17L17 83" stroke="'+color+'" stroke-width="9"/>';
+    } else if (type === 'dot'){
+      s += '<circle cx="50" cy="50" r="38" fill="'+color+'"/>';
+    } else if (type === 'tracker'){
+      s += '<circle cx="50" cy="50" r="43" fill="none" stroke="'+color+'" stroke-width="6"/>'
+        +  '<path d="M50 18 L80 70 L20 70 Z" fill="none" stroke="'+color+'" stroke-width="5" stroke-linejoin="round"/>'
+        +  '<path d="M50 42V58M42 50H58" stroke="'+color+'" stroke-width="4.5"/>';
+    } else if (type === 'checker'){
+      var ct = contrastFor(color);
+      s += '<circle cx="50" cy="50" r="45" fill="'+ct+'"/>'
+        +  '<path d="M50 50 L50 5 A45 45 0 0 1 95 50 Z" fill="'+color+'"/>'
+        +  '<path d="M50 50 L50 95 A45 45 0 0 1 5 50 Z" fill="'+color+'"/>'
+        +  '<circle cx="50" cy="50" r="45" fill="none" stroke="'+color+'" stroke-width="2.5"/>';
+    }
+    return s + '</svg>';
+  }
+
+  /* ---------- render ---------- */
+  function renderStage(){
+    stage.style.background = state.bg;
+    document.documentElement.style.background = state.bg;
+    document.body.style.background = state.bg;
+    var html = '';
+    PATTERNS[state.pattern].forEach(function(p){
+      html += '<div class="marker" style="left:'+p[0]+'%;top:'+p[1]+'%;width:'+state.size+'px;height:'+state.size+'px">'
+            + markerSVG(state.type, state.mk) + '</div>';
+    });
+    stage.innerHTML = html;
+  }
+
+  function swatchRow(container, key, pickerEl, customKey){
+    container.innerHTML = '';
+    COLORS.forEach(function(c){
+      var b = document.createElement('button');
+      b.className = 'swatch' + (state[key] === c ? ' sel' : '');
+      b.style.background = c;
+      b.setAttribute('aria-label', c);
+      b.addEventListener('click', function(){
+        state[key] = c; save(); renderStage(); renderControls();
+      });
+      container.appendChild(b);
+    });
+    var rb = document.createElement('button');
+    var isCustom = COLORS.indexOf(state[key]) === -1;
+    rb.className = 'swatch rainbow' + (isCustom ? ' sel' : '');
+    rb.setAttribute('aria-label', 'Custom color');
+    rb.addEventListener('click', function(){
+      pickerEl.value = state[customKey];
+      pickerEl.click();
+    });
+    container.appendChild(rb);
+  }
+
+  function renderControls(){
+    swatchRow(document.getElementById('bgRow'), 'bg', bgPicker, 'customBg');
+    swatchRow(document.getElementById('mkRow'), 'mk', mkPicker, 'customMk');
+
+    var tr = document.getElementById('typeRow');
+    tr.innerHTML = '';
+    TYPES.forEach(function(t){
+      var b = document.createElement('button');
+      b.className = 'typeBtn' + (state.type === t ? ' sel' : '');
+      b.setAttribute('aria-label', t);
+      b.innerHTML = markerSVG(t, '#ffffff');
+      b.addEventListener('click', function(){
+        state.type = t; save(); renderStage(); renderControls();
+      });
+      tr.appendChild(b);
+    });
+
+    sizeSlider.value = state.size;
+    sizeVal.textContent = state.size + ' px';
+
+    var pg = document.getElementById('patGrid');
+    pg.innerHTML = '';
+    PATTERN_ORDER.forEach(function(name){
+      var b = document.createElement('button');
+      b.className = 'patBtn' + (state.pattern === name ? ' sel' : '');
+      b.setAttribute('aria-label', name);
+      var inner = '';
+      PATTERNS[name].forEach(function(p){
+        inner += '<span class="pm" style="left:'+p[0]+'%;top:'+p[1]+'%">'
+               + markerSVG('cross', '#c6f52f') + '</span>';
+      });
+      b.innerHTML = inner;
+      b.addEventListener('click', function(){
+        state.pattern = name; save(); renderStage(); renderControls();
+      });
+      pg.appendChild(b);
+    });
+  }
+
+  /* ---------- panel ---------- */
+  function openPanel(){
+    panel.classList.add('open');
+    scrim.style.display = 'block';
+  }
+  function closePanel(){
+    panel.classList.remove('open');
+    scrim.style.display = 'none';
+  }
+
+  /* ---------- toast ---------- */
+  var toastTimer = null;
+  function toast(html, ms){
+    toastEl.innerHTML = html;
+    toastEl.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function(){ toastEl.classList.remove('show'); }, ms || 2200);
+  }
+
+  /* ---------- lock ---------- */
+  function setLocked(v){
+    locked = v;
+    if (locked){
+      closePanel();
+      toast('<span class="lock">&#128274;</span>&nbsp; Locked &mdash; 3-finger tap to unlock');
+      if (kbActive) setTimeout(function(){ kb.focus({preventScroll:true}); }, 60);
+    } else {
+      toast('<span class="lock">&#128275;</span>&nbsp; Unlocked');
+    }
+  }
+
+  document.addEventListener('touchstart', function(e){
+    if (e.touches.length >= 3){
+      lastMulti = Date.now();
+      e.preventDefault();
+      setLocked(!locked);
+    }
+  }, {passive:false});
+
+  /* block scroll / pinch on the stage */
+  stage.addEventListener('touchmove', function(e){ e.preventDefault(); }, {passive:false});
+  scrim.addEventListener('touchmove', function(e){ e.preventDefault(); }, {passive:false});
+  document.addEventListener('gesturestart', function(e){ e.preventDefault(); });
+
+  /* ---------- interactions ---------- */
+  function stageTap(){
+    if (Date.now() - lastMulti < 600) return;
+    if (locked) return;
+    if (kbActive){
+      kbActive = false;
+      kb.blur();
+      return;
+    }
+    openPanel();
+  }
+  stage.addEventListener('click', stageTap);
+  scrim.addEventListener('click', function(){
+    if (Date.now() - lastMulti < 600 || locked) return;
+    closePanel();
+  });
+
+  document.getElementById('closeBtn').addEventListener('click', closePanel);
+  document.getElementById('panelHead').addEventListener('click', function(e){
+    if (e.target.closest('#closeBtn')) return;
+    closePanel();
+  });
+
+  sizeSlider.addEventListener('input', function(){
+    state.size = +sizeSlider.value;
+    sizeVal.textContent = state.size + ' px';
+    renderStage();
+  });
+  sizeSlider.addEventListener('change', save);
+
+  bgPicker.addEventListener('input', function(){
+    state.bg = state.customBg = bgPicker.value; save(); renderStage(); renderControls();
+  });
+  mkPicker.addEventListener('input', function(){
+    state.mk = state.customMk = mkPicker.value; save(); renderStage(); renderControls();
+  });
+
+  /* ---------- keyboard ---------- */
+  document.getElementById('kbBtn').addEventListener('click', function(){
+    kbActive = true;
+    closePanel();
+    kb.style.pointerEvents = 'auto';
+    kb.focus({preventScroll:true});
+  });
+  kb.addEventListener('blur', function(){
+    if (locked && kbActive){
+      setTimeout(function(){ if (locked && kbActive) kb.focus({preventScroll:true}); }, 60);
+    } else {
+      kbActive = false;
+      kb.style.pointerEvents = 'none';
+    }
+  });
+  kb.addEventListener('input', function(){ kb.value = ''; });
+
+  /* ---------- keep screen awake ---------- */
+  var wakeLock = null;
+  function requestWake(){
+    if (!('wakeLock' in navigator)) return;
+    navigator.wakeLock.request('screen').then(function(w){ wakeLock = w; }).catch(function(){});
+  }
+  document.addEventListener('visibilitychange', function(){
+    if (document.visibilityState === 'visible') requestWake();
+  });
+  document.addEventListener('click', function once(){
+    requestWake();
+    document.removeEventListener('click', once);
+  });
+
+  /* ---------- init ---------- */
+  renderStage();
+  renderControls();
+  if (firstRun){
+    setTimeout(function(){
+      toast('Tap: settings &nbsp;&middot;&nbsp; 3-finger tap: lock', 3500);
+    }, 600);
+  }
+})();
+</script>
+</body>
+</html>
