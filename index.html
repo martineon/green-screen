@@ -92,9 +92,14 @@
     box-shadow:0 0 0 3px var(--panel), 0 0 0 6px var(--accent);
   }
   .swatch.rainbow{
+    position:relative; overflow:hidden;
     background:
       radial-gradient(circle at 50% 50%, #fff 0 14%, transparent 16%),
       conic-gradient(#ff0040,#ff8000,#ffee00,#37ff00,#00e0ff,#2a37ff,#c400ff,#ff0040);
+  }
+  .swatch.rainbow input{
+    position:absolute; inset:0; width:100%; height:100%;
+    opacity:0; padding:0; border:0; cursor:pointer;
   }
 
   /* marker types */
@@ -155,13 +160,15 @@
   }
   .hint b{color:var(--text); font-weight:600;}
 
-  /* hidden inputs */
+  /* keyboard input: technically visible (so iOS shows no input-preview capsule),
+     but fully transparent to the eye */
   #kb{
-    position:fixed; bottom:0; left:0; width:100%; height:1px;
-    opacity:0; border:0; padding:0; pointer-events:none;
-    caret-color:transparent; background:transparent;
+    position:fixed; bottom:0; left:0; width:100%; height:44px;
+    border:0; padding:0 12px; margin:0; pointer-events:none;
+    background:transparent; color:transparent;
+    -webkit-text-fill-color:transparent; caret-color:transparent;
+    font-size:16px; outline:none;
   }
-  .colorInput{position:fixed; bottom:0; left:0; width:1px; height:1px; opacity:0; pointer-events:none; border:0;}
 
   /* toast */
   #toast{
@@ -220,9 +227,9 @@
   </div>
 </div>
 
-<input id="kb" type="text" autocomplete="off" autocorrect="off" autocapitalize="none" aria-hidden="true" tabindex="-1">
-<input class="colorInput" type="color" id="bgPicker">
-<input class="colorInput" type="color" id="mkPicker">
+<input id="kb" type="text" name="chroma-note" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" enterkeyhint="done" aria-hidden="true" tabindex="-1">
+<input type="color" id="bgPicker">
+<input type="color" id="mkPicker">
 <div id="toast"></div>
 
 <script>
@@ -332,14 +339,12 @@
       });
       container.appendChild(b);
     });
-    var rb = document.createElement('button');
+    var rb = document.createElement('div');
     var isCustom = COLORS.indexOf(state[key]) === -1;
     rb.className = 'swatch rainbow' + (isCustom ? ' sel' : '');
-    rb.setAttribute('aria-label', 'Custom color');
-    rb.addEventListener('click', function(){
-      pickerEl.value = state[customKey];
-      pickerEl.click();
-    });
+    if (/^#[0-9a-fA-F]{6}$/.test(state[customKey])) pickerEl.value = state[customKey];
+    pickerEl.setAttribute('aria-label', 'Custom color');
+    rb.appendChild(pickerEl);
     container.appendChild(rb);
   }
 
@@ -456,12 +461,16 @@
   });
   sizeSlider.addEventListener('change', save);
 
+  /* live preview while the native picker is open; rebuild the rows only when
+     it closes (a rebuild re-parents the input, which would dismiss the picker) */
   bgPicker.addEventListener('input', function(){
-    state.bg = state.customBg = bgPicker.value; save(); renderStage(); renderControls();
+    state.bg = state.customBg = bgPicker.value; save(); renderStage();
   });
   mkPicker.addEventListener('input', function(){
-    state.mk = state.customMk = mkPicker.value; save(); renderStage(); renderControls();
+    state.mk = state.customMk = mkPicker.value; save(); renderStage();
   });
+  bgPicker.addEventListener('change', renderControls);
+  mkPicker.addEventListener('change', renderControls);
 
   /* ---------- keyboard ---------- */
   document.getElementById('kbBtn').addEventListener('click', function(){
