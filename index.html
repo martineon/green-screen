@@ -223,7 +223,7 @@
     <p class="hint">
       <b>Tap</b> the screen to open settings.<br>
       <b>3-finger tap</b> to lock / unlock the interface while filming.
-      <br>v4
+      <br>v5
     </p>
   </div>
 </div>
@@ -482,6 +482,14 @@
     for (var i = 0; i < sibs.length; i++) sibs[i].classList.remove('sel');
     rain.classList.add('sel');
   }
+  /* tapping the rainbow swatch applies the stored custom color right away —
+     the wheel then only fine-tunes it (input never fires if nothing changes) */
+  bgPicker.addEventListener('click', function(){
+    state.bg = state.customBg = bgPicker.value; save(); renderStage(); ringRainbow(bgPicker);
+  });
+  mkPicker.addEventListener('click', function(){
+    state.mk = state.customMk = mkPicker.value; save(); renderStage(); ringRainbow(mkPicker);
+  });
   bgPicker.addEventListener('input', function(){
     state.bg = state.customBg = bgPicker.value; save(); renderStage(); ringRainbow(bgPicker);
   });
