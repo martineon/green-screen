@@ -147,13 +147,18 @@
   .patBtn .pm svg{display:block; width:20px; height:20px;}
 
   /* keyboard + hint */
-  #kbBtn{
+  .kbtn{
     width:100%; padding:16px; border:0; border-radius:16px;
     background:var(--accent); color:#12140a;
     font-size:16px; font-weight:700; cursor:pointer;
     font-family:inherit;
   }
-  #kbBtn:active{filter:brightness(.9);}
+  .kbtn:active{filter:brightness(.9);}
+  .kbtn.alt{
+    background:var(--card); color:var(--text);
+    border:1.5px solid var(--line); font-weight:600;
+    margin-top:10px;
+  }
   .hint{
     color:var(--muted); font-size:13px; line-height:1.55;
     text-align:center; margin:20px 0 0;
@@ -169,6 +174,60 @@
     -webkit-text-fill-color:transparent; caret-color:transparent;
     font-size:16px; outline:none;
   }
+
+  /* replica iOS keyboard — palettes follow the system light/dark mode */
+  #fakekb{
+    --kbBg:rgba(18,19,22,.58);
+    --keyBg:rgba(255,255,255,.24);
+    --fnBg:rgba(255,255,255,.115);
+    --keyText:#fff;
+    --fnPress:rgba(255,255,255,.4);
+    --popBg:rgba(255,255,255,.44);
+    --keyShadow:0 1px 0 rgba(0,0,0,.35);
+    position:fixed; left:4px; right:4px; bottom:4px; z-index:9;
+    padding:14px 4px calc(4px + env(safe-area-inset-bottom));
+    background:var(--kbBg);
+    -webkit-backdrop-filter:blur(30px) saturate(160%);
+    backdrop-filter:blur(30px) saturate(160%);
+    border-radius:30px;
+    transform:translateY(120%);
+    transition:transform .3s cubic-bezier(.32,.72,.25,1);
+  }
+  @media (prefers-color-scheme: light){
+    #fakekb{
+      --kbBg:rgba(203,206,212,.75);
+      --keyBg:#ffffff;
+      --fnBg:#a9aeba;
+      --keyText:#000;
+      --fnPress:#ffffff;
+      --popBg:#ffffff;
+      --keyShadow:0 1px 0 #898a8d;
+    }
+  }
+  #fakekb.show{transform:translateY(0);}
+  .kbrow{display:flex; gap:6px; padding:0 4px; margin-bottom:11px;}
+  .key{
+    flex:1 1 0; height:clamp(42px,11.5vw,56px);
+    display:flex; align-items:center; justify-content:center;
+    background:var(--keyBg); color:var(--keyText);
+    border:0; border-radius:13px; padding:0;
+    font-family:inherit; font-size:24px; font-weight:400;
+    box-shadow:var(--keyShadow);
+    -webkit-tap-highlight-color:transparent;
+  }
+  .key.dim{background:var(--fnBg); font-size:16px; font-weight:500;}
+  .key.dim.press{background:var(--fnPress);}
+  .key.space.press{filter:brightness(.8);}
+  .key.wide{flex:1.35;}
+  .key.space{flex:3.2; font-size:16px;}
+  .key.ret{flex:1.55; background:#0a84ff; color:#fff;}
+  .key.ret.press{filter:brightness(.75);}
+  .key.mode{flex:1.55;}
+  .key svg{width:23px; height:23px;}
+  /* iOS 26 key pop: the key stretches upward into one continuous shape */
+  .kpop{position:absolute; z-index:3; pointer-events:none;}
+  .kbextras{display:flex; justify-content:space-between; padding:6px 24px 0;}
+  .kbextras svg{width:26px; height:26px; opacity:.92; color:var(--keyText);}
 
   /* toast */
   #toast{
@@ -217,18 +276,23 @@
     <h2>Choose Pattern</h2>
     <div class="patterns" id="patGrid"></div>
 
+    <h2>Density <span class="val" id="densityVal"></span></h2>
+    <input type="range" id="densitySlider" min="1" max="6" step="1">
+
     <h2>Keyboard</h2>
-    <button id="kbBtn">Show System Keyboard</button>
+    <button id="kbFakeBtn" class="kbtn">Replica Keyboard &mdash; no capsule</button>
+    <button id="kbBtn" class="kbtn alt">System Keyboard</button>
 
     <p class="hint">
       <b>Tap</b> the screen to open settings.<br>
       <b>3-finger tap</b> to lock / unlock the interface while filming.
-      <br>v5
+      <br>v8
     </p>
   </div>
 </div>
 
 <input id="kb" type="text" name="chroma-note" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" enterkeyhint="done" aria-hidden="true" tabindex="-1">
+<div id="fakekb" aria-hidden="true"></div>
 <input type="color" id="bgPicker">
 <input type="color" id="mkPicker">
 <div id="toast"></div>
@@ -239,20 +303,80 @@
 
   var COLORS = ['#05a13c','#0d3cc9','#000000','#2b2b2b','#ffffff'];
 
-  var PATTERNS = {
+  var PATTERN_MOTIFS = {
     corners4: [[10,7],[90,7],[10,93],[90,93]],
     corners5: [[10,7],[90,7],[10,93],[90,93],[50,50]],
-    cluster4: [[40,45],[60,45],[40,55],[60,55]],
-    grid9:    [[15,12],[50,12],[85,12],[15,50],[50,50],[85,50],[15,88],[50,88],[85,88]],
-    grid20:   (function(){
-                var xs=[12,37.3,62.7,88], ys=[7,28.5,50,71.5,93], p=[];
-                ys.forEach(function(y){ xs.forEach(function(x){ p.push([x,y]); }); });
-                return p;
-              })(),
     single:   [[50,50]]
   };
-  var PATTERN_ORDER = ['corners4','corners5','cluster4','grid9','grid20','single'];
+  var PATTERN_ORDER = ['corners4','corners5','single'];
   var TYPES = ['cross','x','dot','tracker','checker'];
+
+  /* evenly spaced positions (px) across [0,totalPx], first/last inset by marginPx */
+  function evenPositionsPx(count, marginPx, totalPx){
+    if (count <= 1) return [totalPx / 2];
+    var step = (totalPx - marginPx * 2) / (count - 1);
+    var arr = [];
+    for (var i = 0; i < count; i++) arr.push(marginPx + i * step);
+    return arr;
+  }
+
+  /* column x-positions derived from screen WIDTH, then however many rows are
+     needed to fill the full HEIGHT top-to-bottom using that same spacing
+     (snapped to the row count that matches closest) */
+  function axisPositions(cols, marginPercentOfWidth, W, H){
+    var marginPx = (marginPercentOfWidth / 100) * W;
+    var xs = evenPositionsPx(cols, marginPx, W);
+    var stepPx = cols > 1 ? (xs[1] - xs[0]) : 0;
+    var rows = 1;
+    if (stepPx > 0){
+      var span = H - marginPx * 2;
+      var raw = span / stepPx;
+      var lo = Math.max(1, Math.floor(raw)), hi = Math.max(1, Math.ceil(raw));
+      var loStep = span / lo, hiStep = span / hi;
+      var intervals = Math.abs(loStep - stepPx) <= Math.abs(hiStep - stepPx) ? lo : hi;
+      rows = intervals + 1;
+    }
+    var ys = evenPositionsPx(rows, marginPx, H);
+    return {xs: xs, ys: ys};
+  }
+
+  function crossProduct(xs, ys, W, H){
+    var pts = [];
+    ys.forEach(function(y){
+      xs.forEach(function(x){
+        pts.push([x / W * 100, y / H * 100]);
+      });
+    });
+    return pts;
+  }
+
+  /* one point at the center of every 2x2 cell formed by adjacent grid lines */
+  function cellCenters(xs, ys, W, H){
+    var pts = [];
+    for (var j = 0; j < ys.length - 1; j++){
+      for (var i = 0; i < xs.length - 1; i++){
+        pts.push([(xs[i] + xs[i+1]) / 2 / W * 100, (ys[j] + ys[j+1]) / 2 / H * 100]);
+      }
+    }
+    return pts;
+  }
+
+  function gridPoints(cols, marginPercentOfWidth, W, H){
+    var axes = axisPositions(cols, marginPercentOfWidth, W, H);
+    return crossProduct(axes.xs, axes.ys, W, H);
+  }
+
+  /* corners4/corners5: 2*density points per axis, margin fixed at 10% of width.
+     corners5 also gets a center cross in the middle of every group of 4.
+     single: density points per axis, margin = half a cell (cell-centered). */
+  function patternPoints(name, density, W, H){
+    var n = Math.max(1, density || 1);
+    if (name === 'single') return gridPoints(n, 50 / n, W, H);
+    var axes = axisPositions(2 * n, 10, W, H);
+    var pts = crossProduct(axes.xs, axes.ys, W, H);
+    if (name === 'corners5') pts = pts.concat(cellCenters(axes.xs, axes.ys, W, H));
+    return pts;
+  }
 
   var state = {
     bg: '#05a13c',
@@ -260,6 +384,7 @@
     type: 'cross',
     size: 38,
     pattern: 'corners5',
+    density: 1,
     customBg: '#ff6a00',
     customMk: '#ff6a00'
   };
@@ -267,6 +392,7 @@
   try { saved = JSON.parse(localStorage.getItem('gs-settings')); } catch(e){}
   var firstRun = !saved;
   if (saved) for (var k in state) if (saved[k] !== undefined) state[k] = saved[k];
+  if (!PATTERN_MOTIFS[state.pattern]) state.pattern = 'corners5';
 
   var locked = false;
   var kbActive = false;
@@ -276,9 +402,12 @@
   var panel = document.getElementById('panel');
   var scrim = document.getElementById('scrim');
   var kb = document.getElementById('kb');
+  var fakekb = document.getElementById('fakekb');
   var toastEl = document.getElementById('toast');
   var sizeSlider = document.getElementById('sizeSlider');
   var sizeVal = document.getElementById('sizeVal');
+  var densitySlider = document.getElementById('densitySlider');
+  var densityVal = document.getElementById('densityVal');
   var bgPicker = document.getElementById('bgPicker');
   var mkPicker = document.getElementById('mkPicker');
 
@@ -287,11 +416,12 @@
   }
 
   /* ---------- marker SVG ---------- */
-  function contrastFor(color){
+  function complementFor(color){
     var c = color.replace('#','');
     if (c.length === 3) c = c[0]+c[0]+c[1]+c[1]+c[2]+c[2];
     var r=parseInt(c.substr(0,2),16), g=parseInt(c.substr(2,2),16), b=parseInt(c.substr(4,2),16);
-    return (0.299*r + 0.587*g + 0.114*b) > 150 ? '#000000' : '#ffffff';
+    var hex = function(n){ return (255-n).toString(16).padStart(2,'0'); };
+    return '#' + hex(r) + hex(g) + hex(b);
   }
   function markerSVG(type, color){
     var s = '<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">';
@@ -306,7 +436,7 @@
         +  '<path d="M50 18 L80 70 L20 70 Z" fill="none" stroke="'+color+'" stroke-width="5" stroke-linejoin="round"/>'
         +  '<path d="M50 42V58M42 50H58" stroke="'+color+'" stroke-width="4.5"/>';
     } else if (type === 'checker'){
-      var ct = contrastFor(color);
+      var ct = complementFor(color);
       s += '<circle cx="50" cy="50" r="45" fill="'+ct+'"/>'
         +  '<path d="M50 50 L50 5 A45 45 0 0 1 95 50 Z" fill="'+color+'"/>'
         +  '<path d="M50 50 L50 95 A45 45 0 0 1 5 50 Z" fill="'+color+'"/>'
@@ -321,12 +451,16 @@
     document.documentElement.style.background = state.bg;
     document.body.style.background = state.bg;
     var html = '';
-    PATTERNS[state.pattern].forEach(function(p){
-      html += '<div class="marker" style="left:'+p[0]+'%;top:'+p[1]+'%;width:'+state.size+'px;height:'+state.size+'px">'
+    var W = stage.clientWidth || window.innerWidth;
+    var H = stage.clientHeight || window.innerHeight;
+    var markerSize = state.size * (state.pattern === 'single' ? 4 : 1);
+    patternPoints(state.pattern, state.density, W, H).forEach(function(p){
+      html += '<div class="marker" style="left:'+p[0]+'%;top:'+p[1]+'%;width:'+markerSize+'px;height:'+markerSize+'px">'
             + markerSVG(state.type, state.mk) + '</div>';
     });
     stage.innerHTML = html;
   }
+  window.addEventListener('resize', renderStage);
 
   function swatchRow(container, key, pickerEl, customKey){
     container.innerHTML = '';
@@ -369,6 +503,9 @@
     sizeSlider.value = state.size;
     sizeVal.textContent = state.size + ' px';
 
+    densitySlider.value = state.density;
+    densityVal.textContent = state.density + '×' + state.density;
+
     var pg = document.getElementById('patGrid');
     pg.innerHTML = '';
     PATTERN_ORDER.forEach(function(name){
@@ -376,7 +513,7 @@
       b.className = 'patBtn' + (state.pattern === name ? ' sel' : '');
       b.setAttribute('aria-label', name);
       var inner = '';
-      PATTERNS[name].forEach(function(p){
+      PATTERN_MOTIFS[name].forEach(function(p){
         inner += '<span class="pm" style="left:'+p[0]+'%;top:'+p[1]+'%">'
                + markerSVG('cross', '#c6f52f') + '</span>';
       });
@@ -439,6 +576,7 @@
     if (kbActive){
       kbActive = false;
       kb.blur();
+      hideFakeKB();
       return;
     }
     openPanel();
@@ -462,6 +600,13 @@
     renderStage();
   });
   sizeSlider.addEventListener('change', save);
+
+  densitySlider.addEventListener('input', function(){
+    state.density = +densitySlider.value;
+    densityVal.textContent = state.density + '×' + state.density;
+    renderStage();
+  });
+  densitySlider.addEventListener('change', save);
 
   /* while the native color picker is open, its taps leak "click" events to the
      page underneath — keep the settings panel from closing on those */
@@ -500,6 +645,7 @@
   /* ---------- keyboard ---------- */
   document.getElementById('kbBtn').addEventListener('click', function(){
     kbActive = true;
+    hideFakeKB();
     closePanel();
     kb.style.pointerEvents = 'auto';
     kb.focus({preventScroll:true});
@@ -513,6 +659,176 @@
     }
   });
   kb.addEventListener('input', function(){ kb.value = ''; });
+
+  /* ---------- replica iOS keyboard (no accessory capsule) ---------- */
+  var kbLayout = 'letters', kbShift = true, capsLock = false, lastShiftTap = 0;
+
+  function shiftIcon(){
+    var fill = (kbShift || capsLock) ? 'currentColor' : 'none';
+    var lock = capsLock ? '<path d="M9 20.5h6" stroke-linecap="round"/>' : '';
+    return '<svg viewBox="0 0 24 24" fill="'+fill+'" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M12 3.5 4.5 11H8.5V16H15.5V11H19.5Z"/>'+lock+'</svg>';
+  }
+  var KB_ICONS = {
+    back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8.4 5h10.1A1.5 1.5 0 0 1 20 6.5v11a1.5 1.5 0 0 1-1.5 1.5H8.4l-5.6-7z" stroke-linejoin="round"/><path d="M11.6 9.6l4.8 4.8m0-4.8l-4.8 4.8" stroke-linecap="round"/></svg>',
+    ret: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+    emoji: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 14a4.5 4.5 0 0 0 7 0"/><circle cx="9" cy="9.7" r="0.9" fill="currentColor" stroke="none"/><circle cx="15" cy="9.7" r="0.9" fill="currentColor" stroke="none"/></svg>',
+    mic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="9.2" y="2.8" width="5.6" height="11" rx="2.8"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3.4"/></svg>'
+  };
+
+  function keyBtn(label, cls, action){
+    return '<button class="key'+(cls ? ' '+cls : '')+'"'
+         + (action ? ' data-a="'+action+'"' : '')
+         + '>'+label+'</button>';
+  }
+  function charRow(chars){
+    return '<div class="kbrow">' + chars.map(function(c){ return keyBtn(c); }).join('') + '</div>';
+  }
+  function renderKB(){
+    var rows = '';
+    if (kbLayout === 'letters'){
+      var up = kbShift || capsLock;
+      var f = function(c){ return up ? c.toUpperCase() : c; };
+      rows += charRow('azertyuiop'.split('').map(f));
+      rows += charRow('qsdfghjklm'.split('').map(f));
+      rows += '<div class="kbrow">'
+            + keyBtn(shiftIcon(), 'dim wide', 'shift')
+            + ['w','x','c','v','b','n','´'].map(function(c){ return keyBtn(f(c)); }).join('')
+            + keyBtn(KB_ICONS.back, 'dim wide', 'back')
+            + '</div>';
+    } else if (kbLayout === 'numbers'){
+      rows += charRow('1234567890'.split(''));
+      rows += charRow(['-','/',':',';','(',')','€','&','@','"']);
+      rows += '<div class="kbrow">'
+            + keyBtn('#+=', 'dim wide', 'sym')
+            + ['.',',','?','!','´'].map(function(c){ return keyBtn(c); }).join('')
+            + keyBtn(KB_ICONS.back, 'dim wide', 'back')
+            + '</div>';
+    } else {
+      rows += charRow('[]{}#%^*+='.split(''));
+      rows += charRow(['_','\\','|','~','&lt;','&gt;','$','£','¥','·']);
+      rows += '<div class="kbrow">'
+            + keyBtn('123', 'dim wide', 'sym')
+            + ['.',',','?','!','´'].map(function(c){ return keyBtn(c); }).join('')
+            + keyBtn(KB_ICONS.back, 'dim wide', 'back')
+            + '</div>';
+    }
+    rows += '<div class="kbrow">'
+          + keyBtn(kbLayout === 'letters' ? '123' : 'ABC', 'dim mode', 'mode')
+          + keyBtn('', 'space', 'space')
+          + keyBtn(KB_ICONS.ret, 'ret', 'ret')
+          + '</div>';
+    rows += '<div class="kbextras">' + KB_ICONS.emoji + KB_ICONS.mic + '</div>';
+    fakekb.innerHTML = rows;
+  }
+  function showFakeKB(){
+    kbLayout = 'letters'; kbShift = true; capsLock = false;
+    renderKB();
+    fakekb.classList.add('show');
+  }
+  function hideFakeKB(){ fakekb.classList.remove('show'); }
+
+  /* iOS 26 key pop: one continuous shape — a big rounded head floating one row
+     up, flowing into a stem that covers the pressed key itself */
+  function popBalloon(keyEl){
+    var kr = keyEl.getBoundingClientRect(), fr = fakekb.getBoundingClientRect();
+    var kw = kr.width, kh = kr.height;
+    var W = kw * 1.5, H = kh * 1.7, gap = 6, TH = H + gap + kh;
+    var left = kr.left - fr.left + kw/2 - W/2;
+    left = Math.max(3, Math.min(fr.width - W - 3, left));
+    /* keep the stem glued to the key even when the head is clamped at an edge */
+    var sx = (kr.left - fr.left) - left;
+    sx = Math.max(0, Math.min(W - kw, sx));
+    var top = kr.top - fr.top - H - gap;
+    var R = 20, r = 13, c = 12;
+    var p = 'M '+R+',0 L '+(W-R)+',0 Q '+W+',0 '+W+','+R
+          + ' L '+W+','+(H-c)
+          + ' C '+W+','+H+' '+(sx+kw)+','+H+' '+(sx+kw)+','+(H+c)
+          + ' L '+(sx+kw)+','+(TH-r)
+          + ' Q '+(sx+kw)+','+TH+' '+(sx+kw-r)+','+TH
+          + ' L '+(sx+r)+','+TH
+          + ' Q '+sx+','+TH+' '+sx+','+(TH-r)
+          + ' L '+sx+','+(H+c)
+          + ' C '+sx+','+H+' 0,'+H+' 0,'+(H-c)
+          + ' L 0,'+R+' Q 0,0 '+R+',0 Z';
+    var b = document.createElement('div');
+    b.className = 'kpop';
+    b.style.cssText = 'left:'+left+'px;top:'+top+'px;width:'+W+'px;height:'+TH+'px;';
+    b.innerHTML = '<svg width="'+W+'" height="'+TH+'" viewBox="0 0 '+W+' '+TH+'" style="position:absolute;left:0;top:0;filter:drop-shadow(0 2px 5px rgba(0,0,0,.22))"><path d="'+p+'" style="fill:var(--popBg)"/></svg>'
+                + '<span style="position:absolute;left:0;top:0;width:'+W+'px;height:'+H+'px;display:flex;align-items:center;justify-content:center;font-size:'+Math.round(kh*1.05)+'px;color:var(--keyText)">'+keyEl.textContent+'</span>';
+    fakekb.appendChild(b);
+    return b;
+  }
+
+  function doKey(keyEl){
+    var a = keyEl.getAttribute('data-a');
+    if (a === 'shift'){
+      var now = Date.now();
+      if (now - lastShiftTap < 350){ capsLock = true; kbShift = true; }
+      else { capsLock = false; kbShift = !kbShift; }
+      lastShiftTap = now;
+      renderKB();
+    } else if (a === 'mode'){
+      kbLayout = (kbLayout === 'letters') ? 'numbers' : 'letters';
+      kbShift = false; capsLock = false;
+      renderKB();
+    } else if (a === 'sym'){
+      kbLayout = (kbLayout === 'numbers') ? 'symbols' : 'numbers';
+      renderKB();
+    } else if (!a && kbLayout === 'letters' && kbShift && !capsLock){
+      /* like iOS: shift releases after one letter */
+      setTimeout(function(){ kbShift = false; renderKB(); }, 120);
+    }
+  }
+
+  /* per-touch handling so two-thumb typing animates each key independently */
+  var kbTouches = {};
+  fakekb.addEventListener('touchstart', function(e){
+    for (var i = 0; i < e.changedTouches.length; i++){
+      var t = e.changedTouches[i];
+      var el = document.elementFromPoint(t.clientX, t.clientY);
+      var key = el && el.closest ? el.closest('.key') : null;
+      if (!key) continue;
+      key.classList.add('press');
+      var entry = {key: key, pop: null};
+      if (!key.getAttribute('data-a') && key.textContent) entry.pop = popBalloon(key);
+      kbTouches[t.identifier] = entry;
+    }
+    if (e.touches.length < 3) e.preventDefault();
+  }, {passive:false});
+  function kbRelease(e){
+    for (var i = 0; i < e.changedTouches.length; i++){
+      var entry = kbTouches[e.changedTouches[i].identifier];
+      if (!entry) continue;
+      entry.key.classList.remove('press');
+      if (entry.pop && entry.pop.parentNode) entry.pop.parentNode.removeChild(entry.pop);
+      if (e.type === 'touchend') doKey(entry.key);
+      delete kbTouches[e.changedTouches[i].identifier];
+    }
+  }
+  fakekb.addEventListener('touchend', kbRelease);
+  fakekb.addEventListener('touchcancel', kbRelease);
+  /* mouse fallback for desktop testing */
+  fakekb.addEventListener('mousedown', function(e){
+    if ('ontouchstart' in window) return;
+    var key = e.target.closest('.key');
+    if (!key) return;
+    key.classList.add('press');
+    var pop = (!key.getAttribute('data-a') && key.textContent) ? popBalloon(key) : null;
+    var up = function(){
+      key.classList.remove('press');
+      if (pop && pop.parentNode) pop.parentNode.removeChild(pop);
+      doKey(key);
+      document.removeEventListener('mouseup', up);
+    };
+    document.addEventListener('mouseup', up);
+  });
+
+  document.getElementById('kbFakeBtn').addEventListener('click', function(){
+    kb.blur();
+    kbActive = true;
+    closePanel();
+    showFakeKB();
+  });
 
   /* ---------- keep screen awake ---------- */
   var wakeLock = null;
